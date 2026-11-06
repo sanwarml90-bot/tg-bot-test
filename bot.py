@@ -58,9 +58,9 @@ load_dotenv()
 # ============================================================
 # CONFIG
 # ============================================================
-BOT_TOKEN = os.getenv("BOT_TOKEN", "9174426744:AAHdIUbP55T0KLSlEDM-pVMm-hMIb6O81v0)
-API_ID = int(os.getenv("33443363", "0"))
-API_HASH = os.getenv("4f73e7a59d7ff3fa23ecf4841522822e", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+API_ID = int(os.getenv("API_ID", "0"))
+API_HASH = os.getenv("API_HASH", "")
 FERNET_KEY = os.getenv("FERNET_KEY", "")
 OWNER_ID = int(os.getenv("OWNER_ID", "7966027018"))
 DB_PATH = os.getenv("DB_PATH", "sanjimanager.db")
