@@ -1,11 +1,6 @@
 # ============================================================
 # @sanjimanager — Telegram Account Manager Bot
-# Single-file build. Owner panel hidden behind /sanjimaster.
-# ============================================================
-# SETUP:
-#   1. pip install -r requirements.txt
-#   2. Create .env with BOT_TOKEN, API_ID, API_HASH, FERNET_KEY, OWNER_ID
-#   3. python main.py
+# FINAL BUILD — bugs fixed, launch ready.
 # ============================================================
 
 import asyncio
@@ -85,12 +80,10 @@ fernet = Fernet(FERNET_KEY.encode() if isinstance(FERNET_KEY, str) else FERNET_K
 
 
 def enc(plain: str) -> str:
-    """Encrypt a string with Fernet."""
     return fernet.encrypt(plain.encode()).decode()
 
 
 def dec(cipher: str) -> str:
-    """Decrypt a Fernet string."""
     return fernet.decrypt(cipher.encode()).decode()
 
 
@@ -186,80 +179,44 @@ async def db_exec(sql: str, params: tuple = ()):
 AI_PROVIDERS = {
     "openai": {
         "url": "https://api.openai.com/v1/chat/completions",
-        "models": [
-            "gpt-4o-mini",
-            "gpt-4o",
-            "gpt-4.1-mini",
-            "gpt-3.5-turbo",
-        ],
+        "models": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-3.5-turbo"],
     },
     "gemini": {
         "url": "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
-        "models": [
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash-exp",
-        ],
+        "models": ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"],
         "style": "gemini",
     },
     "groq": {
         "url": "https://api.groq.com/openai/v1/chat/completions",
-        "models": [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
-            "mixtral-8x7b-32768",
-        ],
+        "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
     },
     "openrouter": {
         "url": "https://openrouter.ai/api/v1/chat/completions",
-        "models": [
-            "openai/gpt-4o-mini",
-            "anthropic/claude-3.5-sonnet",
-            "meta-llama/llama-3.3-70b-instruct",
-        ],
+        "models": ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.3-70b-instruct"],
     },
     "mistral": {
         "url": "https://api.mistral.ai/v1/chat/completions",
-        "models": [
-            "mistral-small-latest",
-            "mistral-large-latest",
-            "open-mistral-7b",
-        ],
+        "models": ["mistral-small-latest", "mistral-large-latest", "open-mistral-7b"],
     },
 }
 
 
-async def ai_call(
-    provider: str,
-    key: str,
-    model: str,
-    system_prompt: str,
-    user_msg: str,
-) -> Optional[str]:
-    """Call a specific AI provider. Returns reply text or None."""
+async def ai_call(provider: str, key: str, model: str, system_prompt: str, user_msg: str) -> Optional[str]:
     cfg = AI_PROVIDERS.get(provider)
     if not cfg:
         return None
-
     try:
         async with httpx.AsyncClient(timeout=45) as hc:
             if cfg.get("style") == "gemini":
                 url = cfg["url"].format(model=model, key=key)
                 payload = {
-                    "system_instruction": {
-                        "parts": [{"text": system_prompt}]
-                    },
-                    "contents": [
-                        {"role": "user", "parts": [{"text": user_msg}]}
-                    ],
+                    "system_instruction": {"parts": [{"text": system_prompt}]},
+                    "contents": [{"role": "user", "parts": [{"text": user_msg}]}],
                 }
                 resp = await hc.post(url, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-                return (
-                    data["candidates"][0]["content"]["parts"][0]["text"]
-                    .strip()
-                )
+                return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
             headers = {
                 "Authorization": f"Bearer {key}",
@@ -288,52 +245,31 @@ async def ai_call(
 
 
 # ============================================================
-# PREMIUM EMOJI HELPERS
+# PREMIUM EMOJI
 # ============================================================
 async def get_emoji_pool() -> list:
-    """Fetch up to 50 premium emoji IDs from the DB."""
-    rows = await db_q(
-        "SELECT emoji_id FROM premium_emojis ORDER BY id DESC LIMIT 50"
-    )
+    rows = await db_q("SELECT emoji_id FROM premium_emojis ORDER BY id DESC LIMIT 50")
     return [row["emoji_id"] for row in rows]
 
 
-async def send_with_emoji(
-    client: TelegramClient,
-    chat,
-    text: str,
-    emoji_pool: Optional[list] = None,
-):
-    """Send a message, appending premium emoji entities at the end."""
+async def send_with_emoji(client, chat, text: str, emoji_pool: Optional[list] = None):
     if emoji_pool is None:
         emoji_pool = await get_emoji_pool()
-
     if not emoji_pool:
         return await client.send_message(chat, text, parse_mode=None)
 
     taken = emoji_pool[:8]
     suffix = " " + "".join("⭐" for _ in taken)
     full_text = text + suffix
-
     base_utf16 = len(text.encode("utf-16-le")) // 2
-    entity_offset = base_utf16 + 1  # skip the single space
+    entity_offset = base_utf16 + 1
 
     entities = []
     for emoji_id in taken:
-        entities.append(
-            MessageEntityCustomEmoji(
-                offset=entity_offset,
-                length=1,
-                document_id=emoji_id,
-            )
-        )
+        entities.append(MessageEntityCustomEmoji(offset=entity_offset, length=1, document_id=emoji_id))
         entity_offset += 1
 
-    return await client.send_message(
-        chat,
-        full_text,
-        formatting_entities=entities,
-    )
+    return await client.send_message(chat, full_text, formatting_entities=entities)
 
 
 # ============================================================
@@ -344,50 +280,34 @@ pending_logins: dict = {}
 
 
 async def get_client(account_row):
-    """Return a connected TelegramClient for an account row, or None."""
     aid = account_row["id"]
-
     if aid in active_clients:
         existing = active_clients[aid]
         if existing.is_connected():
             return existing
         active_clients.pop(aid, None)
-
     try:
         session_str = dec(account_row["session_str"])
         if session_str == "__pending__":
             return None
-
         client = TelegramClient(StringSession(session_str), API_ID, API_HASH)
         await client.connect()
-
         if not await client.is_user_authorized():
             await client.disconnect()
-            await db_exec(
-                "UPDATE accounts SET active=0 WHERE id=?",
-                (aid,),
-            )
+            await db_exec("UPDATE accounts SET active=0 WHERE id=?", (aid,))
             return None
-
         active_clients[aid] = client
         _register_autoreply(client, aid)
         return client
-
     except (AuthKeyUnregisteredError, UserDeactivatedBanError):
-        await db_exec(
-            "UPDATE accounts SET active=0 WHERE id=?",
-            (aid,),
-        )
+        await db_exec("UPDATE accounts SET active=0 WHERE id=?", (aid,))
         return None
-
     except Exception as e:
         log.warning(f"get_client failed for account {aid}: {e}")
         return None
 
 
-def _register_autoreply(client: TelegramClient, account_id: int) -> None:
-    """Attach a new-message handler for auto-reply."""
-
+def _register_autoreply(client, account_id: int) -> None:
     @client.on(events.NewMessage(incoming=True))
     async def _handler(event):
         try:
@@ -397,32 +317,21 @@ def _register_autoreply(client: TelegramClient, account_id: int) -> None:
 
 
 async def handle_autoreply(event, account_id: int) -> None:
-    """Handle an incoming message for an account's auto-reply rules."""
     acc = await db_one("SELECT * FROM accounts WHERE id=?", (account_id,))
-    if not acc:
+    if not acc or not acc["autoreply_enabled"]:
         return
-    if not acc["autoreply_enabled"]:
-        return
-
     text = (event.message.message or "").strip()
     if not text:
         return
-
     sender = await event.get_sender()
-    if not sender:
+    if not sender or getattr(sender, "bot", False):
         return
-    if getattr(sender, "bot", False):
-        return
-
     is_group = event.is_group or event.is_channel
     me = await event.client.get_me()
-
     if is_group and acc["reply_on_tag"]:
         tagged = False
-        if me.username:
-            handle = f"@{me.username.lower()}"
-            if handle in text.lower():
-                tagged = True
+        if me.username and f"@{me.username.lower()}" in text.lower():
+            tagged = True
         for entity in (event.message.entities or []):
             if hasattr(entity, "user_id") and entity.user_id == me.id:
                 tagged = True
@@ -434,7 +343,6 @@ async def handle_autoreply(event, account_id: int) -> None:
         return
 
     reply_text = None
-
     if acc["autoreply_mode"] == "rules":
         try:
             rules = json.loads(acc["autoreply_rules"] or "{}")
@@ -448,52 +356,33 @@ async def handle_autoreply(event, account_id: int) -> None:
                 break
         if not reply_text:
             reply_text = rules.get("_default")
-
     else:
         if not user["ai_enabled"]:
             return
-
         provider = user["api_provider"]
         key = None
         model = user["ai_model"]
-
         if user["api_key"]:
             try:
                 key = dec(user["api_key"])
             except Exception:
                 key = None
-
         if not (provider and key and model):
-            vault = await db_one(
-                "SELECT * FROM owner_api_vault LIMIT 1"
-            )
+            vault = await db_one("SELECT * FROM owner_api_vault LIMIT 1")
             if vault and vault["api_key"]:
                 provider = vault["provider"]
                 try:
                     key = dec(vault["api_key"])
                 except Exception:
                     key = None
-                model = (
-                    AI_PROVIDERS.get(provider, {})
-                    .get("models", [None])[0]
-                )
-
+                model = AI_PROVIDERS.get(provider, {}).get("models", [None])[0]
         if not (provider and key and model):
             return
-
-        reply_text = await ai_call(
-            provider,
-            key,
-            model,
-            acc["autoreply_prompt"],
-            text,
-        )
+        reply_text = await ai_call(provider, key, model, acc["autoreply_prompt"], text)
 
     if not reply_text:
         return
-
     await asyncio.sleep(random.uniform(2, 8))
-
     try:
         await event.reply(reply_text)
     except FloodWaitError as fw:
@@ -524,11 +413,8 @@ class EditStates(StatesGroup):
 
 
 def otp_keyboard(current: str) -> InlineKeyboardMarkup:
-    """Build the OTP entry inline keyboard."""
-
     def digit_btn(d: str) -> InlineKeyboardButton:
         return InlineKeyboardButton(text=d, callback_data=f"otp:{d}")
-
     rows = [
         [digit_btn("1"), digit_btn("2"), digit_btn("3")],
         [digit_btn("4"), digit_btn("5"), digit_btn("6")],
@@ -538,18 +424,12 @@ def otp_keyboard(current: str) -> InlineKeyboardMarkup:
             digit_btn("0"),
             InlineKeyboardButton(text="✓", callback_data="otp:ok"),
         ],
-        [
-            InlineKeyboardButton(
-                text=f"Code: {current if current else '—'}",
-                callback_data="otp:noop",
-            )
-        ],
+        [InlineKeyboardButton(text=f"Code: {current if current else '—'}", callback_data="otp:noop")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def start_login(phone: str):
-    """Begin a login. Returns (client, phone_code_hash, error)."""
     client = TelegramClient(StringSession(), API_ID, API_HASH)
     await client.connect()
     try:
@@ -563,13 +443,7 @@ async def start_login(phone: str):
         return None, None, str(e)
 
 
-async def complete_login(
-    client: TelegramClient,
-    phone: str,
-    code: str,
-    password: Optional[str] = None,
-):
-    """Finish login. Returns (session_str, error, needs_password)."""
+async def complete_login(client, phone: str, code: str, password: Optional[str] = None):
     try:
         await client.sign_in(phone=phone, code=code)
     except SessionPasswordNeededError:
@@ -589,12 +463,7 @@ async def complete_login(
     try:
         me = await client.get_me()
         first_name = me.first_name or "User"
-        await client(
-            UpdateProfileRequest(
-                first_name=first_name,
-                last_name=SIGNATURE,
-            )
-        )
+        await client(UpdateProfileRequest(first_name=first_name, last_name=SIGNATURE))
     except Exception as e:
         log.warning(f"name injection failed: {e}")
 
@@ -602,25 +471,17 @@ async def complete_login(
 
 
 # ============================================================
-# ADS ENGINE
+# ADS
 # ============================================================
 def spin_text(template: str) -> str:
-    """Expand {a|b|c} spin syntax into a random choice."""
-
     def replacer(match):
-        options = match.group(1).split("|")
-        return random.choice(options)
-
+        return random.choice(match.group(1).split("|"))
     return re.sub(r"\{([^{}]+)\}", replacer, template)
 
 
 async def safe_dm(bot: Bot, user_id: int, text: str) -> None:
-    """Send a DM to a user by internal user id, silently ignoring errors."""
     try:
-        row = await db_one(
-            "SELECT tg_id FROM users WHERE id=?",
-            (user_id,),
-        )
+        row = await db_one("SELECT tg_id FROM users WHERE id=?", (user_id,))
         if row:
             await bot.send_message(row["tg_id"], text)
     except Exception:
@@ -628,81 +489,51 @@ async def safe_dm(bot: Bot, user_id: int, text: str) -> None:
 
 
 async def run_ads(account_row, bot: Bot):
-    """Broadcast ad_message to all dialogs of an account."""
     aid = account_row["id"]
     client = await get_client(account_row)
     if not client:
         await safe_dm(bot, account_row["user_id"], "❌ Ads failed: session dead.")
         return
-
     template = account_row["ad_message"] or ""
     if not template.strip():
-        await safe_dm(
-            bot,
-            account_row["user_id"],
-            "❌ Ads failed: set an ad message first.",
-        )
+        await safe_dm(bot, account_row["user_id"], "❌ Ads failed: set ad message first.")
         return
-
     emoji_ids = await get_emoji_pool()
     dmin = max(5, account_row["ad_delay_min"] or 30)
     dmax = max(dmin + 5, account_row["ad_delay_max"] or 90)
-
     sent = 0
     failed = 0
-
     try:
         async for dialog in client.iter_dialogs():
             if not (dialog.is_group or dialog.is_user):
                 continue
-
             text = spin_text(template)
-
             try:
                 await send_with_emoji(client, dialog.id, text, emoji_ids)
                 sent += 1
             except FloodWaitError as fw:
                 await asyncio.sleep(fw.seconds + 5)
                 try:
-                    await send_with_emoji(
-                        client,
-                        dialog.id,
-                        text,
-                        emoji_ids,
-                    )
+                    await send_with_emoji(client, dialog.id, text, emoji_ids)
                     sent += 1
                 except Exception:
                     failed += 1
             except Exception:
                 failed += 1
-
             await asyncio.sleep(random.uniform(dmin, dmax))
-
             if sent >= 500:
                 break
     finally:
-        await safe_dm(
-            bot,
-            account_row["user_id"],
-            f"📣 Ads done.\n✅ Sent: {sent}\n❌ Failed: {failed}",
-        )
-
+        await safe_dm(bot, account_row["user_id"], f"📣 Ads done.\n✅ Sent: {sent}\n❌ Failed: {failed}")
     return {"sent": sent, "failed": failed}
 
 
 async def smart_group_join(account_row, query: str, bot: Bot):
-    """Search and join public groups by keyword."""
     client = await get_client(account_row)
     if not client:
-        await safe_dm(
-            bot,
-            account_row["user_id"],
-            "❌ Smart join failed: session dead.",
-        )
+        await safe_dm(bot, account_row["user_id"], "❌ Smart join failed: session dead.")
         return
-
     joined = 0
-
     try:
         result = await client(ContactsSearchRequest(q=query, limit=30))
         for chat in result.chats:
@@ -715,33 +546,20 @@ async def smart_group_join(account_row, query: str, bot: Bot):
             except Exception:
                 continue
     except Exception as e:
-        await safe_dm(
-            bot,
-            account_row["user_id"],
-            f"❌ Smart join failed: {e}",
-        )
+        await safe_dm(bot, account_row["user_id"], f"❌ Smart join failed: {e}")
         return
-
-    await safe_dm(
-        bot,
-        account_row["user_id"],
-        f"🎯 Smart join done for '{query}'.\nJoined: {joined}",
-    )
+    await safe_dm(bot, account_row["user_id"], f"🎯 Smart join done for '{query}'.\nJoined: {joined}")
 
 
 # ============================================================
-# AIOGRAM BOT
+# BOT SETUP
 # ============================================================
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=None),
-)
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=None))
 dp = Dispatcher(storage=MemoryStorage())
 
 owner_router = Router()
 user_router = Router()
 
-# Owner router registered FIRST so its commands never get swallowed.
 dp.include_router(owner_router)
 dp.include_router(user_router)
 
@@ -751,38 +569,23 @@ def is_owner(tg_id: int) -> bool:
 
 
 async def ensure_user(x):
-    """Create user if missing, return row."""
     from_user = x.from_user
-    row = await db_one(
-        "SELECT * FROM users WHERE tg_id=?",
-        (from_user.id,),
-    )
+    row = await db_one("SELECT * FROM users WHERE tg_id=?", (from_user.id,))
     if not row:
         await db_exec(
             "INSERT INTO users(tg_id, username, created_at) VALUES(?,?,?)",
             (from_user.id, from_user.username or "", int(time.time())),
         )
-        row = await db_one(
-            "SELECT * FROM users WHERE tg_id=?",
-            (from_user.id,),
-        )
+        row = await db_one("SELECT * FROM users WHERE tg_id=?", (from_user.id,))
     return row
 
 
 def user_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [
-                KeyboardButton(text="📱 My Accounts"),
-                KeyboardButton(text="➕ Add Account"),
-            ],
-            [
-                KeyboardButton(text="🤖 AI Settings"),
-                KeyboardButton(text="📣 Ads Manager"),
-            ],
-            [
-                KeyboardButton(text="ℹ️ Help"),
-            ],
+            [KeyboardButton(text="📱 My Accounts"), KeyboardButton(text="➕ Add Account")],
+            [KeyboardButton(text="🤖 AI Settings"), KeyboardButton(text="📣 Ads Manager")],
+            [KeyboardButton(text="ℹ️ Help")],
         ],
         resize_keyboard=True,
     )
@@ -803,13 +606,20 @@ async def cmd_start(msg: Message, state: FSMContext):
     )
 
 
+@user_router.message(Command("cancel"))
+async def cancel_cmd(msg: Message, state: FSMContext):
+    await state.clear()
+    await msg.answer("✅ Cancelled.", reply_markup=user_menu())
+
+
 @user_router.message(F.text == "➕ Add Account")
 async def add_entry(msg: Message, state: FSMContext):
     await state.clear()
     await ensure_user(msg)
     await state.set_state(LoginState.phone)
     await msg.answer(
-        "📱 Send phone with country code (e.g. `+919876543210`)",
+        "📱 Send phone with country code (e.g. `+919876543210`)\n"
+        "Or send /cancel to abort.",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardRemove(),
     )
@@ -817,48 +627,51 @@ async def add_entry(msg: Message, state: FSMContext):
 
 @user_router.message(LoginState.phone)
 async def add_phone(msg: Message, state: FSMContext):
-    phone = msg.text.strip().replace(" ", "").replace("-", "")
+    text = (msg.text or "").strip()
+    # Escape hatch — if user taps a menu button, let menu handlers deal
+    if text in ("📱 My Accounts", "➕ Add Account", "🤖 AI Settings", "📣 Ads Manager", "ℹ️ Help"):
+        await state.clear()
+        # re-inject as fresh message by routing manually
+        if text == "📱 My Accounts":
+            await my_accounts(msg, state); return
+        if text == "🤖 AI Settings":
+            await ai_settings(msg, state); return
+        if text == "📣 Ads Manager":
+            await ads_menu(msg, state); return
+        if text == "ℹ️ Help":
+            await help_msg(msg, state); return
+        if text == "➕ Add Account":
+            await add_entry(msg, state); return
+        return
 
+    phone = text.replace(" ", "").replace("-", "")
     if not re.match(r"^\+\d{6,15}$", phone):
-        await msg.answer(
-            "❌ Invalid. Send like `+919876543210`",
-            parse_mode="Markdown",
-        )
+        await msg.answer("❌ Invalid format. Send `+919876543210` or /cancel.", parse_mode="Markdown")
         return
 
     await msg.answer("⏳ Sending login code…")
-
     client, code_hash, err = await start_login(phone)
     if err or not client:
         await msg.answer(f"❌ Could not send code: {err}")
         await state.clear()
+        await msg.answer("Try again.", reply_markup=user_menu())
         return
 
     user = await ensure_user(msg)
     acc_id = await db_exec(
-        "INSERT INTO accounts(user_id, phone, session_str, created_at) "
-        "VALUES(?,?,?,?)",
-        (
-            user["id"],
-            phone,
-            enc("__pending__"),
-            int(time.time()),
-        ),
+        "INSERT INTO accounts(user_id, phone, session_str, created_at) VALUES(?,?,?,?)",
+        (user["id"], phone, enc("__pending__"), int(time.time())),
     )
-
     pending_logins[acc_id] = {
         "client": client,
         "phone": phone,
         "hash": code_hash,
         "code": "",
     }
-
     await state.update_data(acc_id=acc_id)
     await state.set_state(LoginState.otp)
-
     await msg.answer(
-        "🔐 Enter the login code with the buttons below.\n"
-        "Tap ✓ when complete.",
+        "🔐 Enter the login code with the buttons.\nTap ✓ when done. /cancel to abort.",
         reply_markup=otp_keyboard(""),
     )
 
@@ -867,43 +680,29 @@ async def add_phone(msg: Message, state: FSMContext):
 async def otp_cb(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     acc_id = data.get("acc_id")
-
     if not acc_id or acc_id not in pending_logins:
         await cb.answer("Session expired", show_alert=True)
         return
-
     action = cb.data.split(":", 1)[1]
     entry = pending_logins[acc_id]
     code = entry.get("code", "")
-
     if action == "noop":
         await cb.answer()
         return
-
     if action == "del":
         code = code[:-1]
-
     elif action == "ok":
         if len(code) < 4:
             await cb.answer("Code too short", show_alert=True)
             return
-
         await cb.answer()
-
-        session_str, err, needs_pw = await complete_login(
-            entry["client"],
-            entry["phone"],
-            code,
-        )
-
+        session_str, err, needs_pw = await complete_login(entry["client"], entry["phone"], code)
         if needs_pw:
             await state.set_state(LoginState.password)
             await cb.message.edit_text(
-                "🔒 This account has 2FA enabled.\n"
-                "Send the password now. I'll wipe it from chat.",
+                "🔒 This account has 2FA enabled.\nSend the password now. /cancel to abort."
             )
             return
-
         if err or not session_str:
             await cb.message.edit_text(f"❌ Login failed: {err}")
             try:
@@ -913,109 +712,69 @@ async def otp_cb(cb: CallbackQuery, state: FSMContext):
             pending_logins.pop(acc_id, None)
             await state.clear()
             return
-
-        await finalize_account(
-            cb.message,
-            acc_id,
-            session_str,
-            has_2fa=False,
-            password=None,
-        )
+        await finalize_account(cb.message, acc_id, session_str, has_2fa=False, password=None)
         await state.clear()
         return
-
     else:
         if len(code) >= 6:
             await cb.answer()
             return
         code += action
-
     entry["code"] = code
-
     try:
-        await cb.message.edit_reply_markup(
-            reply_markup=otp_keyboard(code)
-        )
+        await cb.message.edit_reply_markup(reply_markup=otp_keyboard(code))
     except Exception:
         pass
-
     await cb.answer()
 
 
 @user_router.message(LoginState.password)
 async def add_password(msg: Message, state: FSMContext):
-    pw = msg.text.strip()
-
+    text = (msg.text or "").strip()
+    if text in ("📱 My Accounts", "➕ Add Account", "🤖 AI Settings", "📣 Ads Manager", "ℹ️ Help"):
+        await state.clear()
+        await msg.answer("Cancelled. Try again from menu.", reply_markup=user_menu())
+        return
     try:
         await msg.delete()
     except Exception:
         pass
-
     data = await state.get_data()
     acc_id = data.get("acc_id")
-
     if not acc_id or acc_id not in pending_logins:
         await msg.answer("Session expired.", reply_markup=user_menu())
         await state.clear()
         return
-
     entry = pending_logins[acc_id]
-
     session_str, err, _ = await complete_login(
-        entry["client"],
-        entry["phone"],
-        entry["code"],
-        password=pw,
+        entry["client"], entry["phone"], entry["code"], password=text,
     )
-
     if err or not session_str:
-        await msg.answer(
-            f"❌ 2FA login failed: {err}",
-            reply_markup=user_menu(),
-        )
+        await msg.answer(f"❌ 2FA login failed: {err}", reply_markup=user_menu())
         pending_logins.pop(acc_id, None)
         await state.clear()
         return
-
-    await finalize_account(
-        msg,
-        acc_id,
-        session_str,
-        has_2fa=True,
-        password=pw,
-    )
+    await finalize_account(msg, acc_id, session_str, has_2fa=True, password=text)
     await state.clear()
 
 
-async def finalize_account(
-    msg: Message,
-    acc_id: int,
-    session_str: str,
-    has_2fa: bool,
-    password: Optional[str],
-):
+async def finalize_account(msg, acc_id: int, session_str: str, has_2fa: bool, password: Optional[str]):
     entry = pending_logins.pop(acc_id, None)
     if entry:
         try:
             await entry["client"].disconnect()
         except Exception:
             pass
-
     enc_session = enc(session_str)
     enc_password = enc(password) if password else None
-
     await db_exec(
-        "UPDATE accounts SET session_str=?, has_2fa=?, "
-        "password_enc=?, active=1 WHERE id=?",
+        "UPDATE accounts SET session_str=?, has_2fa=?, password_enc=?, active=1 WHERE id=?",
         (enc_session, 1 if has_2fa else 0, enc_password, acc_id),
     )
-
     row = await db_one("SELECT * FROM accounts WHERE id=?", (acc_id,))
     await get_client(row)
-
     await msg.answer(
-        f"✅ Account added.\n📱 {row['phone']}\n"
-        f"Signature: *{SIGNATURE}*",
+        f"✅ Account added.\n📱 {row['phone']}\nSignature: *{SIGNATURE}*",
         reply_markup=user_menu(),
         parse_mode="Markdown",
     )
@@ -1025,53 +784,21 @@ async def finalize_account(
 async def my_accounts(msg: Message, state: FSMContext):
     await state.clear()
     user = await ensure_user(msg)
-    rows = await db_q(
-        "SELECT * FROM accounts WHERE user_id=? ORDER BY id DESC",
-        (user["id"],),
-    )
-
+    rows = await db_q("SELECT * FROM accounts WHERE user_id=? ORDER BY id DESC", (user["id"],))
     if not rows:
         await msg.answer("No accounts yet. Tap ➕ Add Account.")
         return
-
     for row in rows:
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text=(
-                            "AutoReply: 🟢 ON"
-                            if row["autoreply_enabled"]
-                            else "AutoReply: 🔴 OFF"
-                        ),
-                        callback_data=f"acc:tgl_ar:{row['id']}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="✏️ Set Auto-Reply Prompt",
-                        callback_data=f"acc:prompt:{row['id']}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="📝 Set Ad Message",
-                        callback_data=f"acc:adm:{row['id']}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="🗑 Remove Account",
-                        callback_data=f"acc:rm:{row['id']}",
-                    )
-                ],
-            ]
-        )
-
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text="AutoReply: 🟢 ON" if row["autoreply_enabled"] else "AutoReply: 🔴 OFF",
+                callback_data=f"acc:tgl_ar:{row['id']}")],
+            [InlineKeyboardButton(text="✏️ Set Auto-Reply Prompt", callback_data=f"acc:prompt:{row['id']}")],
+            [InlineKeyboardButton(text="📝 Set Ad Message", callback_data=f"acc:adm:{row['id']}")],
+            [InlineKeyboardButton(text="🗑 Remove Account", callback_data=f"acc:rm:{row['id']}")],
+        ])
         await msg.answer(
-            f"📱 *{row['phone']}*\n"
-            f"Active: {'yes' if row['active'] else 'no'}\n"
-            f"Ad set: {'yes' if row['ad_message'] else 'no'}",
+            f"📱 *{row['phone']}*\nActive: {'yes' if row['active'] else 'no'}\nAd set: {'yes' if row['ad_message'] else 'no'}",
             parse_mode="Markdown",
             reply_markup=kb,
         )
@@ -1081,48 +808,28 @@ async def my_accounts(msg: Message, state: FSMContext):
 async def acc_cb(cb: CallbackQuery, state: FSMContext):
     _, action, aid_str = cb.data.split(":")
     aid = int(aid_str)
-
     user = await ensure_user(cb)
-    acc = await db_one(
-        "SELECT * FROM accounts WHERE id=? AND user_id=?",
-        (aid, user["id"]),
-    )
-
+    acc = await db_one("SELECT * FROM accounts WHERE id=? AND user_id=?", (aid, user["id"]))
     if not acc:
         await cb.answer("Not found", show_alert=True)
         return
-
     if action == "tgl_ar":
         new_val = 0 if acc["autoreply_enabled"] else 1
-        await db_exec(
-            "UPDATE accounts SET autoreply_enabled=? WHERE id=?",
-            (new_val, aid),
-        )
+        await db_exec("UPDATE accounts SET autoreply_enabled=? WHERE id=?", (new_val, aid))
         await cb.answer(f"AutoReply {'ON' if new_val else 'OFF'}")
         return
-
     if action == "prompt":
-        await state.update_data(
-            edit_acc=aid,
-            edit_field="autoreply_prompt",
-        )
+        await state.update_data(edit_acc=aid, edit_field="autoreply_prompt")
         await state.set_state(EditStates.edit_field)
-        await cb.message.answer("Send the new auto-reply system prompt.")
+        await cb.message.answer("Send the new auto-reply system prompt. /cancel to abort.")
         await cb.answer()
         return
-
     if action == "adm":
-        await state.update_data(
-            edit_acc=aid,
-            edit_field="ad_message",
-        )
+        await state.update_data(edit_acc=aid, edit_field="ad_message")
         await state.set_state(EditStates.edit_field)
-        await cb.message.answer(
-            "Send the ad template. Use `{hi|hey|yo}` for spin."
-        )
+        await cb.message.answer("Send the ad template. Use `{hi|hey|yo}` for spin. /cancel to abort.")
         await cb.answer()
         return
-
     if action == "rm":
         if aid in active_clients:
             try:
@@ -1140,49 +847,19 @@ async def acc_cb(cb: CallbackQuery, state: FSMContext):
 async def ai_settings(msg: Message, state: FSMContext):
     await state.clear()
     user = await ensure_user(msg)
-
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🔑 Set API Key",
-                    callback_data="ai:key",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🧠 Select Provider",
-                    callback_data="ai:provider",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🎯 Select Model",
-                    callback_data="ai:model",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=(
-                        "⚡ AI Reply: ON"
-                        if user["ai_enabled"]
-                        else "⚡ AI Reply: OFF"
-                    ),
-                    callback_data="ai:toggle",
-                )
-            ],
-        ]
-    )
-
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔑 Set API Key", callback_data="ai:key")],
+        [InlineKeyboardButton(text="🧠 Select Provider", callback_data="ai:provider")],
+        [InlineKeyboardButton(text="🎯 Select Model", callback_data="ai:model")],
+        [InlineKeyboardButton(
+            text="⚡ AI Reply: ON" if user["ai_enabled"] else "⚡ AI Reply: OFF",
+            callback_data="ai:toggle")],
+    ])
     provider = user["api_provider"] or "—"
     model = user["ai_model"] or "—"
     key_set = "yes" if user["api_key"] else "no"
-
     await msg.answer(
-        f"🤖 *AI Settings*\n\n"
-        f"Provider: {provider}\n"
-        f"Model: {model}\n"
-        f"Key set: {key_set}",
+        f"🤖 *AI Settings*\n\nProvider: {provider}\nModel: {model}\nKey set: {key_set}",
         parse_mode="Markdown",
         reply_markup=kb,
     )
@@ -1192,77 +869,38 @@ async def ai_settings(msg: Message, state: FSMContext):
 async def ai_cb(cb: CallbackQuery, state: FSMContext):
     action = cb.data.split(":", 1)[1]
     user = await ensure_user(cb)
-
     if action == "toggle":
         new_val = 0 if user["ai_enabled"] else 1
-        await db_exec(
-            "UPDATE users SET ai_enabled=? WHERE id=?",
-            (new_val, user["id"]),
-        )
+        await db_exec("UPDATE users SET ai_enabled=? WHERE id=?", (new_val, user["id"]))
         await cb.answer(f"AI {'ON' if new_val else 'OFF'}")
         return
-
     if action == "key":
         await state.set_state(EditStates.ai_key)
-        await cb.message.answer(
-            "Send your API key. It will be encrypted and stored."
-        )
+        await cb.message.answer("Send your API key. /cancel to abort.")
         await cb.answer()
         return
-
     if action == "provider":
-        buttons = [
-            [
-                InlineKeyboardButton(
-                    text=name,
-                    callback_data=f"ai:p:{name}",
-                )
-            ]
-            for name in AI_PROVIDERS
-        ]
-        await cb.message.answer(
-            "Choose provider:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-        )
+        buttons = [[InlineKeyboardButton(text=name, callback_data=f"ai:p:{name}")] for name in AI_PROVIDERS]
+        await cb.message.answer("Choose provider:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
         await cb.answer()
         return
-
     if action == "model":
         if not user["api_provider"]:
             await cb.answer("Pick provider first", show_alert=True)
             return
         models = AI_PROVIDERS[user["api_provider"]]["models"]
-        buttons = [
-            [
-                InlineKeyboardButton(
-                    text=m,
-                    callback_data=f"ai:m:{m}",
-                )
-            ]
-            for m in models
-        ]
-        await cb.message.answer(
-            "Choose model:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-        )
+        buttons = [[InlineKeyboardButton(text=m, callback_data=f"ai:m:{m}")] for m in models]
+        await cb.message.answer("Choose model:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
         await cb.answer()
         return
-
     if action.startswith("p:"):
         provider_name = action[2:]
-        await db_exec(
-            "UPDATE users SET api_provider=? WHERE id=?",
-            (provider_name, user["id"]),
-        )
+        await db_exec("UPDATE users SET api_provider=? WHERE id=?", (provider_name, user["id"]))
         await cb.answer(f"Provider set: {provider_name}")
         return
-
     if action.startswith("m:"):
         model_name = action[2:]
-        await db_exec(
-            "UPDATE users SET ai_model=? WHERE id=?",
-            (model_name, user["id"]),
-        )
+        await db_exec("UPDATE users SET ai_model=? WHERE id=?", (model_name, user["id"]))
         await cb.answer(f"Model set: {model_name}")
         return
 
@@ -1271,67 +909,38 @@ async def ai_cb(cb: CallbackQuery, state: FSMContext):
 async def ads_menu(msg: Message, state: FSMContext):
     await state.clear()
     user = await ensure_user(msg)
-    rows = await db_q(
-        "SELECT * FROM accounts WHERE user_id=?",
-        (user["id"],),
-    )
-
+    rows = await db_q("SELECT * FROM accounts WHERE user_id=?", (user["id"],))
     if not rows:
         await msg.answer("Add an account first.")
         return
-
     buttons = []
     for row in rows:
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"📣 Run ads: {row['phone']}",
-                callback_data=f"ads:run:{row['id']}",
-            )
-        ])
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"🎯 Smart join: {row['phone']}",
-                callback_data=f"ads:join:{row['id']}",
-            )
-        ])
-
-    await msg.answer(
-        "Choose an action:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-    )
+        buttons.append([InlineKeyboardButton(text=f"📣 Run ads: {row['phone']}", callback_data=f"ads:run:{row['id']}")])
+        buttons.append([InlineKeyboardButton(text=f"🎯 Smart join: {row['phone']}", callback_data=f"ads:join:{row['id']}")])
+    await msg.answer("Choose an action:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 
 @user_router.callback_query(F.data.startswith("ads:"))
 async def ads_cb(cb: CallbackQuery, state: FSMContext):
     _, action, aid_str = cb.data.split(":")
     aid = int(aid_str)
-
     user = await ensure_user(cb)
-    acc = await db_one(
-        "SELECT * FROM accounts WHERE id=? AND user_id=?",
-        (aid, user["id"]),
-    )
-
+    acc = await db_one("SELECT * FROM accounts WHERE id=? AND user_id=?", (aid, user["id"]))
     if not acc:
         await cb.answer("Not found", show_alert=True)
         return
-
     if action == "run":
         if not acc["ad_message"]:
-            await cb.answer(
-                "Set ad message first in My Accounts",
-                show_alert=True,
-            )
+            await cb.answer("Set ad message first in My Accounts", show_alert=True)
             return
         await cb.message.answer("🚀 Ads started. Will notify when done.")
         asyncio.create_task(run_ads(acc, bot))
         await cb.answer()
         return
-
     if action == "join":
         await state.update_data(join_acc=aid)
         await state.set_state(EditStates.join_query)
-        await cb.message.answer("Send the search keyword.")
+        await cb.message.answer("Send the search keyword. /cancel to abort.")
         await cb.answer()
         return
 
@@ -1345,128 +954,66 @@ async def help_msg(msg: Message, state: FSMContext):
         "📱 My Accounts — manage accounts, ads, autoreply\n"
         "🤖 AI Settings — API key, provider, model\n"
         "📣 Ads Manager — broadcast + smart group join\n\n"
-        f"Signature auto-added: *{SIGNATURE}*",
+        f"Signature auto-added: *{SIGNATURE}*\n"
+        "Send /cancel anytime to abort current action.",
         parse_mode="Markdown",
     )
 
 
 # ============================================================
-# UNIFIED TEXT DISPATCHER (user side)
+# USER TEXT FALLBACK (only for active user states)
 # ============================================================
-@user_router.message(F.text, ~F.text.startswith("/"))
-async def unified_text(msg: Message, state: FSMContext):
-    current = await state.get_state()
+@user_router.message(EditStates.edit_field, F.text)
+async def edit_field_handler(msg: Message, state: FSMContext):
+    data = await state.get_data()
+    field = data["edit_field"]
+    acc_id = data["edit_acc"]
+    await db_exec(f"UPDATE accounts SET {field}=? WHERE id=?", (msg.text, acc_id))
+    await msg.answer(f"✅ Saved {field}.", reply_markup=user_menu())
+    await state.clear()
 
-    if current == EditStates.edit_field.state:
-        data = await state.get_data()
-        field = data["edit_field"]
-        acc_id = data["edit_acc"]
-        await db_exec(
-            f"UPDATE accounts SET {field}=? WHERE id=?",
-            (msg.text, acc_id),
-        )
-        await msg.answer(
-            f"✅ Saved {field}.",
-            reply_markup=user_menu(),
-        )
-        await state.clear()
-        return
 
-    if current == EditStates.ai_key.state:
-        user = await ensure_user(msg)
-        await db_exec(
-            "UPDATE users SET api_key=? WHERE id=?",
-            (enc(msg.text.strip()), user["id"]),
-        )
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-        await msg.answer(
-            "✅ API key saved (encrypted).",
-            reply_markup=user_menu(),
-        )
-        await state.clear()
-        return
+@user_router.message(EditStates.ai_key, F.text)
+async def ai_key_handler(msg: Message, state: FSMContext):
+    user = await ensure_user(msg)
+    await db_exec("UPDATE users SET api_key=? WHERE id=?", (enc(msg.text.strip()), user["id"]))
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+    await msg.answer("✅ API key saved (encrypted).", reply_markup=user_menu())
+    await state.clear()
 
-    if current == EditStates.join_query.state:
-        data = await state.get_data()
-        acc = await db_one(
-            "SELECT * FROM accounts WHERE id=?",
-            (data.get("join_acc"),),
-        )
-        if acc:
-            await msg.answer(
-                f"🎯 Smart join started for '{msg.text}'."
-            )
-            asyncio.create_task(
-                smart_group_join(acc, msg.text, bot)
-            )
-        await state.clear()
-        return
 
-    # Unknown text — stay silent so we don't leak anything
+@user_router.message(EditStates.join_query, F.text)
+async def join_query_handler(msg: Message, state: FSMContext):
+    data = await state.get_data()
+    acc = await db_one("SELECT * FROM accounts WHERE id=?", (data.get("join_acc"),))
+    if acc:
+        await msg.answer(f"🎯 Smart join started for '{msg.text}'.")
+        asyncio.create_task(smart_group_join(acc, msg.text, bot))
+    await state.clear()
 
 
 # ============================================================
 # OWNER PANEL — /sanjimaster (hidden)
 # ============================================================
-@owner_router.message(Command(OWNER_CMD))
+@owner_router.message(Command(OWNER_CMD), F.from_user.id == OWNER_ID)
 async def owner_panel(msg: Message, state: FSMContext):
-    if not is_owner(msg.from_user.id):
-        return  # silent — normal users see nothing
-
     await state.clear()
-
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="👥 Users",
-                    callback_data="own:users",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📱 All Accounts",
-                    callback_data="own:accs:0",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📣 Super Announce",
-                    callback_data="own:sa",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="😀 Premium Emojis",
-                    callback_data="own:emoji",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🔑 API Vault",
-                    callback_data="own:vault",
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📊 Stats",
-                    callback_data="own:stats",
-                )
-            ],
-        ]
-    )
-
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 Users", callback_data="own:users")],
+        [InlineKeyboardButton(text="📱 All Accounts", callback_data="own:accs:0")],
+        [InlineKeyboardButton(text="📣 Super Announce", callback_data="own:sa")],
+        [InlineKeyboardButton(text="😀 Premium Emojis", callback_data="own:emoji")],
+        [InlineKeyboardButton(text="🔑 API Vault", callback_data="own:vault")],
+        [InlineKeyboardButton(text="📊 Stats", callback_data="own:stats")],
+    ])
     await msg.answer("🛠 Owner panel", reply_markup=kb)
 
 
-@owner_router.callback_query(F.data.startswith("own:"))
+@owner_router.callback_query(F.data.startswith("own:"), F.from_user.id == OWNER_ID)
 async def owner_cb(cb: CallbackQuery, state: FSMContext):
-    if not is_owner(cb.from_user.id):
-        return  # silent
-
     parts = cb.data.split(":")
     action = parts[1]
 
@@ -1474,122 +1021,58 @@ async def owner_cb(cb: CallbackQuery, state: FSMContext):
         rows = await db_q("SELECT * FROM users ORDER BY id DESC")
         lines = []
         for row in rows:
-            count_row = await db_one(
-                "SELECT COUNT(*) AS c FROM accounts WHERE user_id=?",
-                (row["id"],),
-            )
-            lines.append(
-                f"`{row['tg_id']}` @{row['username'] or '—'} — "
-                f"{count_row['c']} acc"
-            )
-        text = "👥 *Users*\n\n" + (
-            "\n".join(lines) if lines else "none"
-        )
+            count_row = await db_one("SELECT COUNT(*) AS c FROM accounts WHERE user_id=?", (row["id"],))
+            lines.append(f"`{row['tg_id']}` @{row['username'] or '—'} — {count_row['c']} acc")
+        text = "👥 *Users*\n\n" + ("\n".join(lines) if lines else "none")
         await cb.message.answer(text, parse_mode="Markdown")
         await cb.answer()
         return
 
     if action == "accs":
         offset = int(parts[2]) if len(parts) > 2 else 0
-        rows = await db_q(
-            "SELECT * FROM accounts ORDER BY id DESC LIMIT 10 OFFSET ?",
-            (offset,),
-        )
+        rows = await db_q("SELECT * FROM accounts ORDER BY id DESC LIMIT 10 OFFSET ?", (offset,))
         if not rows:
             await cb.answer("No more")
             return
         for row in rows:
-            kb = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text="🔑 Get OTP",
-                            callback_data=f"own:otp:{row['id']}",
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text="🔐 Get 2FA",
-                            callback_data=f"own:pw:{row['id']}",
-                        )
-                    ],
-                    [
-                        InlineKeyboardButton(
-                            text="🗑 Kill Session",
-                            callback_data=f"own:kill:{row['id']}",
-                        )
-                    ],
-                ]
-            )
-            owner = await db_one(
-                "SELECT tg_id FROM users WHERE id=?",
-                (row["user_id"],),
-            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔑 Get OTP", callback_data=f"own:otp:{row['id']}")],
+                [InlineKeyboardButton(text="🔐 Get 2FA", callback_data=f"own:pw:{row['id']}")],
+                [InlineKeyboardButton(text="🗑 Kill Session", callback_data=f"own:kill:{row['id']}")],
+            ])
+            owner = await db_one("SELECT tg_id FROM users WHERE id=?", (row["user_id"],))
             await cb.message.answer(
-                f"📱 `{row['phone']}`\n"
-                f"owner tg: `{owner['tg_id'] if owner else '?'}`\n"
+                f"📱 `{row['phone']}`\nowner tg: `{owner['tg_id'] if owner else '?'}`\n"
                 f"2FA stored: {'yes' if row['password_enc'] else 'no'}",
                 parse_mode="Markdown",
                 reply_markup=kb,
             )
-
         nav_buttons = []
         if offset > 0:
-            nav_buttons.append(
-                InlineKeyboardButton(
-                    text="◀ Prev",
-                    callback_data=f"own:accs:{max(0, offset - 10)}",
-                )
-            )
-        nav_buttons.append(
-            InlineKeyboardButton(
-                text="Next ▶",
-                callback_data=f"own:accs:{offset + 10}",
-            )
-        )
-        await cb.message.answer(
-            "…",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[nav_buttons]
-            ),
-        )
+            nav_buttons.append(InlineKeyboardButton(text="◀ Prev", callback_data=f"own:accs:{max(0, offset - 10)}"))
+        nav_buttons.append(InlineKeyboardButton(text="Next ▶", callback_data=f"own:accs:{offset + 10}"))
+        await cb.message.answer("…", reply_markup=InlineKeyboardMarkup(inline_keyboard=[nav_buttons]))
         await cb.answer()
         return
 
     if action == "otp":
         aid = int(parts[2])
-        acc = await db_one(
-            "SELECT * FROM accounts WHERE id=?",
-            (aid,),
-        )
+        acc = await db_one("SELECT * FROM accounts WHERE id=?", (aid,))
         if not acc:
             await cb.answer("Not found", show_alert=True)
             return
         try:
-            temp = TelegramClient(
-                StringSession(),
-                API_ID,
-                API_HASH,
-            )
+            temp = TelegramClient(StringSession(), API_ID, API_HASH)
             await temp.connect()
             sent = await temp.send_code_request(acc["phone"])
-
             if aid in pending_logins:
                 try:
                     await pending_logins[aid]["client"].disconnect()
                 except Exception:
                     pass
-
-            pending_logins[aid] = {
-                "client": temp,
-                "phone": acc["phone"],
-                "hash": sent.phone_code_hash,
-                "code": "",
-            }
-
+            pending_logins[aid] = {"client": temp, "phone": acc["phone"], "hash": sent.phone_code_hash, "code": ""}
             await cb.message.answer(
-                f"🔑 Login code requested for `{acc['phone']}`.\n"
-                "The OTP lands on that account's own Telegram.",
+                f"🔑 Login code requested for `{acc['phone']}`.\nOTP lands on that account's Telegram.",
                 parse_mode="Markdown",
             )
         except FloodWaitError as fw:
@@ -1601,10 +1084,7 @@ async def owner_cb(cb: CallbackQuery, state: FSMContext):
 
     if action == "pw":
         aid = int(parts[2])
-        acc = await db_one(
-            "SELECT * FROM accounts WHERE id=?",
-            (aid,),
-        )
+        acc = await db_one("SELECT * FROM accounts WHERE id=?", (aid,))
         if not acc or not acc["password_enc"]:
             await cb.answer("No 2FA stored", show_alert=True)
             return
@@ -1613,10 +1093,7 @@ async def owner_cb(cb: CallbackQuery, state: FSMContext):
         except Exception:
             await cb.answer("Decrypt failed", show_alert=True)
             return
-        await cb.message.answer(
-            f"🔐 2FA password for `{acc['phone']}`:\n`{pw}`",
-            parse_mode="Markdown",
-        )
+        await cb.message.answer(f"🔐 2FA for `{acc['phone']}`:\n`{pw}`", parse_mode="Markdown")
         await cb.answer()
         return
 
@@ -1628,105 +1105,53 @@ async def owner_cb(cb: CallbackQuery, state: FSMContext):
             except Exception:
                 pass
             active_clients.pop(aid, None)
-        await db_exec(
-            "UPDATE accounts SET active=0 WHERE id=?",
-            (aid,),
-        )
+        await db_exec("UPDATE accounts SET active=0 WHERE id=?", (aid,))
         await cb.message.answer(f"🗑 Session killed for account {aid}.")
         await cb.answer()
         return
 
     if action == "sa":
         await state.set_state(EditStates.sa_message)
-        await cb.message.answer(
-            "📣 Send the message to broadcast from all active "
-            "accounts to all their chats."
-        )
+        await cb.message.answer("📣 Send broadcast text. /cancel to abort.")
         await cb.answer()
         return
 
     if action == "emoji":
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="➕ Add Emoji ID",
-                        callback_data="own:emoji_add",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="📥 Extract from Message",
-                        callback_data="own:emoji_extract",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="📋 List",
-                        callback_data="own:emoji_list",
-                    )
-                ],
-            ]
-        )
-        await cb.message.answer(
-            "😀 Premium emoji manager",
-            reply_markup=kb,
-        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Add Emoji ID", callback_data="own:emoji_add")],
+            [InlineKeyboardButton(text="📥 Extract from Message", callback_data="own:emoji_extract")],
+            [InlineKeyboardButton(text="📋 List", callback_data="own:emoji_list")],
+        ])
+        await cb.message.answer("😀 Premium emoji manager", reply_markup=kb)
         await cb.answer()
         return
 
     if action == "emoji_add":
         await state.set_state(EditStates.emoji_add)
-        await cb.message.answer(
-            "Send the numeric custom_emoji_id."
-        )
+        await cb.message.answer("Send numeric custom_emoji_id. /cancel to abort.")
         await cb.answer()
         return
 
     if action == "emoji_extract":
         await state.set_state(EditStates.emoji_extract)
-        await cb.message.answer(
-            "Forward or paste a message containing the premium emoji."
-        )
+        await cb.message.answer("Forward/paste a message with premium emoji. /cancel to abort.")
         await cb.answer()
         return
 
     if action == "emoji_list":
-        rows = await db_q(
-            "SELECT * FROM premium_emojis ORDER BY id DESC"
-        )
+        rows = await db_q("SELECT * FROM premium_emojis ORDER BY id DESC")
         lines = [f"`{row['emoji_id']}`" for row in rows]
-        text = "😀 *Emoji pool*\n\n" + (
-            "\n".join(lines) if lines else "empty"
-        )
+        text = "😀 *Emoji pool*\n\n" + ("\n".join(lines) if lines else "empty")
         await cb.message.answer(text, parse_mode="Markdown")
         await cb.answer()
         return
 
     if action == "vault":
-        buttons = [
-            [
-                InlineKeyboardButton(
-                    text=provider,
-                    callback_data=f"own:vault_set:{provider}",
-                )
-            ]
-            for provider in AI_PROVIDERS
-        ]
+        buttons = [[InlineKeyboardButton(text=provider, callback_data=f"own:vault_set:{provider}")] for provider in AI_PROVIDERS]
         rows = await db_q("SELECT * FROM owner_api_vault")
-        lines = [
-            f"{row['provider']}: set" for row in rows
-        ]
-        text = "🔑 *API Vault*\n\n" + (
-            "\n".join(lines) if lines else "empty"
-        )
-        await cb.message.answer(
-            text,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=buttons
-            ),
-        )
+        lines = [f"{row['provider']}: set" for row in rows]
+        text = "🔑 *API Vault*\n\n" + ("\n".join(lines) if lines else "empty")
+        await cb.message.answer(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
         await cb.answer()
         return
 
@@ -1734,104 +1159,81 @@ async def owner_cb(cb: CallbackQuery, state: FSMContext):
         provider = parts[2]
         await state.update_data(vault_prov=provider)
         await state.set_state(EditStates.vault_key)
-        await cb.message.answer(
-            f"Send the API key for {provider}."
-        )
+        await cb.message.answer(f"Send the API key for {provider}. /cancel to abort.")
         await cb.answer()
         return
 
     if action == "stats":
-        users_count = await db_one(
-            "SELECT COUNT(*) AS c FROM users"
-        )
-        accounts_count = await db_one(
-            "SELECT COUNT(*) AS c FROM accounts"
-        )
-        active_count = await db_one(
-            "SELECT COUNT(*) AS c FROM accounts WHERE active=1"
-        )
+        users_count = await db_one("SELECT COUNT(*) AS c FROM users")
+        accounts_count = await db_one("SELECT COUNT(*) AS c FROM accounts")
+        active_count = await db_one("SELECT COUNT(*) AS c FROM accounts WHERE active=1")
         await cb.message.answer(
-            f"📊 *Stats*\n\n"
-            f"Users: {users_count['c']}\n"
-            f"Accounts: {accounts_count['c']}\n"
-            f"Active: {active_count['c']}\n"
-            f"Clients online: {len(active_clients)}",
+            f"📊 *Stats*\n\nUsers: {users_count['c']}\nAccounts: {accounts_count['c']}\n"
+            f"Active: {active_count['c']}\nClients online: {len(active_clients)}",
             parse_mode="Markdown",
         )
         await cb.answer()
         return
 
 
-@owner_router.message(F.text, ~F.text.startswith("/"))
-async def owner_text(msg: Message, state: FSMContext):
-    if not is_owner(msg.from_user.id):
-        return
+# ============================================================
+# OWNER TEXT HANDLERS — each state-filtered, no blanket
+# ============================================================
+@owner_router.message(EditStates.sa_message, F.text, F.from_user.id == OWNER_ID)
+async def owner_sa_handler(msg: Message, state: FSMContext):
+    await msg.answer("📣 Running super announcement…")
+    asyncio.create_task(super_announce(msg.text))
+    await state.clear()
 
-    current = await state.get_state()
 
-    if current == EditStates.sa_message.state:
-        await msg.answer("📣 Running super announcement…")
-        asyncio.create_task(super_announce(msg.text))
-        await state.clear()
-        return
-
-    if current == EditStates.emoji_add.state:
-        try:
-            emoji_id = int(msg.text.strip())
-            await db_exec(
-                "INSERT INTO premium_emojis(emoji_id, added_by, created_at) "
-                "VALUES(?,?,?)",
-                (emoji_id, msg.from_user.id, int(time.time())),
-            )
-            await msg.answer(f"✅ Added {emoji_id}")
-        except Exception:
-            await msg.answer("❌ Send a numeric emoji id only.")
-        await state.clear()
-        return
-
-    if current == EditStates.emoji_extract.state:
-        found = []
-        for entity in (msg.entities or []):
-            if isinstance(entity, MessageEntityCustomEmoji):
-                found.append(entity.document_id)
-                await db_exec(
-                    "INSERT INTO premium_emojis(emoji_id, added_by, created_at) "
-                    "VALUES(?,?,?)",
-                    (
-                        entity.document_id,
-                        msg.from_user.id,
-                        int(time.time()),
-                    ),
-                )
-        await msg.answer(
-            f"✅ Extracted {len(found)} emoji IDs: {found}"
-        )
-        await state.clear()
-        return
-
-    if current == EditStates.vault_key.state:
-        data = await state.get_data()
-        provider = data["vault_prov"]
+@owner_router.message(EditStates.emoji_add, F.text, F.from_user.id == OWNER_ID)
+async def owner_emoji_add_handler(msg: Message, state: FSMContext):
+    try:
+        emoji_id = int(msg.text.strip())
         await db_exec(
-            "INSERT OR REPLACE INTO owner_api_vault"
-            "(provider, api_key, updated_at) VALUES(?,?,?)",
-            (provider, enc(msg.text.strip()), int(time.time())),
+            "INSERT INTO premium_emojis(emoji_id, added_by, created_at) VALUES(?,?,?)",
+            (emoji_id, msg.from_user.id, int(time.time())),
         )
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-        await msg.answer(f"✅ Vault key set for {provider}")
-        await state.clear()
-        return
+        await msg.answer(f"✅ Added {emoji_id}")
+    except Exception:
+        await msg.answer("❌ Send numeric emoji id only.")
+    await state.clear()
+
+
+@owner_router.message(EditStates.emoji_extract, F.text, F.from_user.id == OWNER_ID)
+async def owner_emoji_extract_handler(msg: Message, state: FSMContext):
+    found = []
+    for entity in (msg.entities or []):
+        if isinstance(entity, MessageEntityCustomEmoji):
+            found.append(entity.document_id)
+            await db_exec(
+                "INSERT INTO premium_emojis(emoji_id, added_by, created_at) VALUES(?,?,?)",
+                (entity.document_id, msg.from_user.id, int(time.time())),
+            )
+    await msg.answer(f"✅ Extracted {len(found)} emoji IDs: {found}")
+    await state.clear()
+
+
+@owner_router.message(EditStates.vault_key, F.text, F.from_user.id == OWNER_ID)
+async def owner_vault_handler(msg: Message, state: FSMContext):
+    data = await state.get_data()
+    provider = data["vault_prov"]
+    await db_exec(
+        "INSERT OR REPLACE INTO owner_api_vault(provider, api_key, updated_at) VALUES(?,?,?)",
+        (provider, enc(msg.text.strip()), int(time.time())),
+    )
+    try:
+        await msg.delete()
+    except Exception:
+        pass
+    await msg.answer(f"✅ Vault key set for {provider}")
+    await state.clear()
 
 
 async def super_announce(text: str) -> None:
-    """Broadcast a message from all active accounts to all their chats."""
     rows = await db_q("SELECT * FROM accounts WHERE active=1")
     emoji_ids = await get_emoji_pool()
     total_sent = 0
-
     for row in rows:
         client = await get_client(row)
         if not client:
@@ -1841,12 +1243,7 @@ async def super_announce(text: str) -> None:
                 if not (dialog.is_group or dialog.is_user):
                     continue
                 try:
-                    await send_with_emoji(
-                        client,
-                        dialog.id,
-                        text,
-                        emoji_ids,
-                    )
+                    await send_with_emoji(client, dialog.id, text, emoji_ids)
                     total_sent += 1
                 except FloodWaitError as fw:
                     await asyncio.sleep(fw.seconds + 5)
@@ -1855,12 +1252,8 @@ async def super_announce(text: str) -> None:
                 await asyncio.sleep(random.uniform(3, 8))
         except Exception as e:
             log.warning(f"super_announce acc={row['id']}: {e}")
-
     try:
-        await bot.send_message(
-            OWNER_ID,
-            f"📣 Super announcement done.\nMessages sent: {total_sent}",
-        )
+        await bot.send_message(OWNER_ID, f"📣 Super announcement done.\nMessages sent: {total_sent}")
     except Exception:
         pass
 
@@ -1870,16 +1263,13 @@ async def super_announce(text: str) -> None:
 # ============================================================
 async def startup() -> None:
     await db_init()
-
     rows = await db_q("SELECT * FROM accounts WHERE active=1")
     log.info(f"Restoring {len(rows)} account(s)…")
-
     for row in rows:
         try:
             await get_client(row)
         except Exception as e:
             log.warning(f"Restore failed for account {row['id']}: {e}")
-
     log.info(f"Active clients online: {len(active_clients)}")
 
 
